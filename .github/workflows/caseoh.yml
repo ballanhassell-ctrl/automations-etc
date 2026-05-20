@@ -1,0 +1,40 @@
+name: CaseOh Live Check
+
+on:
+  schedule:
+    # 02:00 UTC daily. That is 10pm New York in summer (EDT) and 9pm in winter (EST).
+    # The script waits until 10pm New York before polling, so daylight saving is
+    # handled in code and you never have to touch this number.
+    - cron: "0 2 * * *"
+
+  # Lets you trigger a one-shot test from the Actions tab without waiting for 10pm.
+  workflow_dispatch:
+    inputs:
+      test_now:
+        description: "Run a one-shot test regardless of the time of day"
+        type: boolean
+        default: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Run liveness check
+        env:
+          TWITCH_CLIENT_ID: ${{ secrets.TWITCH_CLIENT_ID }}
+          TWITCH_CLIENT_SECRET: ${{ secrets.TWITCH_CLIENT_SECRET }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          TEST_NOW: ${{ inputs.test_now }}
+        run: python caseoh_cloud_check.py
