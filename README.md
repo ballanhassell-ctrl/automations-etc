@@ -1,2 +1,1 @@
-# case-oh-livecheck
-When is CaseOh live streaming :)?
+# automations-etc
