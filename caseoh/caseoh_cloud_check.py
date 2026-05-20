@@ -24,8 +24,8 @@ from zoneinfo import ZoneInfo
 
 CHANNEL = "caseoh_"
 NY = ZoneInfo("America/New_York")
-WINDOW_START = dtime(22, 5)   # 10:00 PM New York
-WINDOW_END = dtime(23, 5)     # 11:00 PM New York
+WINDOW_START = dtime(22, 5)   # 10:05 PM New York
+WINDOW_END = dtime(23, 5)     # 11:05 PM New York
 POLL_INTERVAL_SECONDS = 180   # check every 3 minutes
 
 CLIENT_ID = os.environ["TWITCH_CLIENT_ID"]
