@@ -11,15 +11,15 @@ encrypted repository secrets. Nothing sensitive lives in this file.
 
   TWITCH_CLIENT_ID
   TWITCH_CLIENT_SECRET
-  NTFY_TOPIC          your private ntfy topic name
-  TEST_NOW            set to "true" by a manual run to skip the time gate
+  NTFY_TOPIC           your private ntfy topic name
+  TEST_NOW             set to "true" by a manual run to skip the time gate
 """
 
 import os
 import sys
 import time
 import requests
-from datetime import datetime, time as dtime
+from datetime import datetime, timedelta, time as dtime
 from zoneinfo import ZoneInfo
 
 CHANNEL = "caseoh_"
@@ -27,16 +27,27 @@ NY = ZoneInfo("America/New_York")
 WINDOW_START = dtime(22, 5)   # 10:05 PM New York
 WINDOW_END = dtime(23, 5)     # 11:05 PM New York
 POLL_INTERVAL_SECONDS = 180   # check every 3 minutes
+HARD_MAX_RUNTIME_SECONDS = 80 * 60  # safety net: never run longer than 80 min
 
 CLIENT_ID = os.environ["TWITCH_CLIENT_ID"]
 CLIENT_SECRET = os.environ["TWITCH_CLIENT_SECRET"]
 NTFY_TOPIC = os.environ["NTFY_TOPIC"]
 TEST_NOW = os.environ.get("TEST_NOW", "false").lower() == "true"
 
-
 def now_ny():
     return datetime.now(NY)
 
+def todays_window_bounds():
+    """Return concrete (start_dt, end_dt) datetimes for tonight's window in NY time.
+
+    Anchored on today's date in NY. Using real datetimes (not just time-of-day)
+    means the comparisons stay correct even if the runner crosses midnight,
+    which is what caused earlier scheduled runs to hang for 90 minutes.
+    """
+    today = now_ny().date()
+    start_dt = datetime.combine(today, WINDOW_START, tzinfo=NY)
+    end_dt = datetime.combine(today, WINDOW_END, tzinfo=NY)
+    return start_dt, end_dt
 
 def get_token():
     r = requests.post(
@@ -51,7 +62,6 @@ def get_token():
     r.raise_for_status()
     return r.json()["access_token"]
 
-
 def is_live(token):
     r = requests.get(
         "https://api.twitch.tv/helix/streams",
@@ -61,7 +71,6 @@ def is_live(token):
     )
     r.raise_for_status()
     return len(r.json().get("data", [])) > 0
-
 
 def push(message, priority="default", tags="purple_heart"):
     requests.post(
@@ -76,15 +85,15 @@ def push(message, priority="default", tags="purple_heart"):
         timeout=15,
     )
 
-
-def sleep_until_window_opens():
-    """If the job starts before 10pm NY (which happens in winter, see README),
-    wait until the window actually opens before polling."""
-    while now_ny().time() < WINDOW_START:
+def sleep_until_window_opens(start_dt):
+    """If the job starts before 10:05pm NY (which happens in winter, see README),
+    wait until the window actually opens before polling. Uses a concrete
+    datetime so it can't loop forever after midnight."""
+    while now_ny() < start_dt:
         time.sleep(60)
 
-
 def main():
+    process_start = time.monotonic()
     token = get_token()
 
     # Manual test run: one check, one notification, done. No waiting.
@@ -94,9 +103,26 @@ def main():
         print(f"{now_ny()}: TEST run, live={live}")
         return
 
-    sleep_until_window_opens()
+    start_dt, end_dt = todays_window_bounds()
 
-    while now_ny().time() < WINDOW_END:
+    # If the scheduled runner started so late that the window has already
+    # ended for today, bail out cleanly instead of doing nothing or hanging.
+    if now_ny() >= end_dt:
+        push("Skipped: runner started after 11:05pm NY, missed tonight's window.",
+             priority="low", tags="warning")
+        print(f"{now_ny()}: started after window end {end_dt}, exiting.")
+        return
+
+    sleep_until_window_opens(start_dt)
+
+    while now_ny() < end_dt:
+        # Belt-and-suspenders: never let the script run longer than the
+        # safety budget, even if something weird happens with the clock.
+        if time.monotonic() - process_start > HARD_MAX_RUNTIME_SECONDS:
+            push("Check aborted: hit hard runtime cap before window close.",
+                 priority="low", tags="warning")
+            print(f"{now_ny()}: hard runtime cap hit, exiting.")
+            return
         try:
             if is_live(token):
                 push("CaseOh is LIVE. Tap to watch.",
@@ -110,7 +136,6 @@ def main():
 
     push("CaseOh never went live by 11pm.", priority="low", tags="zzz")
     print(f"{now_ny()}: cutoff reached, not live.")
-
 
 if __name__ == "__main__":
     main()
