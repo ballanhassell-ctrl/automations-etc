@@ -2,10 +2,14 @@ name: CaseOh Live Check
 
 on:
   schedule:
-    # 02:00 UTC daily. That is 10pm New York in summer (EDT) and 9pm in winter (EST).
-    # The script waits until 10pm New York before polling, so daylight saving is
-    # handled in code and you never have to touch this number.
-    - cron: "0 2 * * *"
+    # Two crons so the job starts at 22:05 America/New_York year-round.
+    # GitHub Actions cron is UTC-only and does not follow DST, so we list both:
+    #   02:05 UTC = 22:05 EDT (summer)
+    #   03:05 UTC = 22:05 EST (winter)
+    # The Python script checks the NY clock and exits immediately on the
+    # wrong-DST cron, so only one of these actually polls each night.
+    - cron: "5 2 * * *"
+    - cron: "5 3 * * *"
 
   # Lets you trigger a one-shot test from the Actions tab without waiting for 10pm.
   workflow_dispatch:
@@ -18,7 +22,9 @@ on:
 jobs:
   check:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    # Window is 22:05-23:05 NY (1 hour) plus setup/teardown.
+    # 70 minutes gives margin without risking a GitHub-side kill.
+    timeout-minutes: 70
     steps:
       - name: Check out repo
         uses: actions/checkout@v4
